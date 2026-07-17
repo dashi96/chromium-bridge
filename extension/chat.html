@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Claude — Chromium Bridge</title>
+  <link rel="stylesheet" href="chat.css">
+</head>
+<body>
+  <header id="header">
+    <div id="title">
+      <span id="logo">✳</span>
+      <span>Claude</span>
+    </div>
+    <div id="header-actions">
+      <select id="model" title="Model">
+        <option value="">Default</option>
+        <option value="claude-fable-5[1m]">Fable 5</option>
+        <option value="opus">Opus</option>
+        <option value="sonnet">Sonnet</option>
+        <option value="haiku">Haiku</option>
+      </select>
+      <button id="history" title="Chat history">🕘</button>
+      <button id="new-chat" title="New chat">＋</button>
+    </div>
+  </header>
+
+  <div id="history-panel" hidden>
+    <div id="history-list"></div>
+  </div>
+
+  <div id="status-bar" hidden></div>
+
+  <main id="messages"></main>
+
+  <div id="attach-strip"></div>
+
+  <div id="ask-bar">
+    <label><input type="checkbox" id="ask-mode"> <span id="ask-label">Ask before acting</span></label>
+    <select id="lang" title="Language">
+      <option value="auto">Auto</option>
+      <option value="en">English</option>
+      <option value="ru">Русский</option>
+    </select>
+  </div>
+
+  <footer id="composer">
+    <textarea id="input" rows="1" placeholder="Ask about your open tabs…"></textarea>
+    <button id="send" title="Send">↑</button>
+    <button id="stop" title="Stop" hidden>■</button>
+  </footer>
+
+  <script src="chat.js"></script>
+</body>
+</html>

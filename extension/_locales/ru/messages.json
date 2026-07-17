@@ -1,0 +1,4 @@
+{
+  "extName": { "message": "Chromium Bridge" },
+  "extDescription": { "message": "Мост между Chromium-браузером и Claude Code: автоматизация браузера без tab groups API" }
+}
