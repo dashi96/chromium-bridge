@@ -9,6 +9,13 @@ which is missing or broken there. This bridge uses only plain
 `chrome.tabs` / `chrome.scripting` / `chrome.debugger`, so it works in any
 Chromium browser that can load an extension.
 
+## Demo
+
+Claude driving the browser through the bridge — opening Wikipedia, typing a
+search, and landing on the article:
+
+![Chromium Bridge demo: Claude controlling a Chromium browser](docs/demo.gif)
+
 ## Architecture
 
 ```
@@ -35,6 +42,8 @@ click the extension icon (no `chrome.sidePanel` — it is not supported
 everywhere). The chat can see the browser: list tabs, read pages, take
 screenshots, and click.
 
+![Chat panel demo: Claude opens a Wikipedia article and answers from it](docs/chat-demo.gif)
+
 The panel UI is in English by default and switches to Russian automatically
 when the browser UI language is Russian. A language selector (Auto / English /
 Русский) in the bottom bar overrides auto-detection; the on-page badge follows
@@ -54,9 +63,7 @@ the same choice.
   fly (`setModel`) and is remembered. Startup override:
   `CHROMIUM_BRIDGE_CHAT_MODEL=sonnet` in the server environment.
   Port: `CHROMIUM_BRIDGE_PORT` (8929 by default).
-- Don't ask the model "who are you" to verify the selection — without its own
-  system prompt it guesses the name; the picker shows the truth.
-- Chat history: the 🕘 button in the header lists past conversations (stored
+- Chat history: the 🕓 button in the header lists past conversations (stored
   in the panel's localStorage, the last 30).
 - After each turn there is a usage line: turn tokens (↑ input incl. cache /
   ↓ output) and the accumulated session cost in $ (on a subscription this is
@@ -90,11 +97,12 @@ injected (`chrome://` and the like) the indication is silently skipped.
 1. **Extension**: open `chrome://extensions` (in the right space/profile!),
    enable "Developer mode", click "Load unpacked", and pick the `extension/`
    folder.
-2. **MCP server**:
-   `claude mcp add -s user chromium-bridge -- node ~/projects/arc-bridge/server/index.mjs`.
+2. **Dependencies**: `cd server && npm install`.
+3. **MCP server**:
+   `claude mcp add -s user chromium-bridge -- node ~/projects/chromium-bridge/server/index.mjs`.
    It loads at session start — restart your Claude Code session after
    installing the extension.
-3. Check: the `browser_status` tool should return `{"connected": true}`.
+4. Check: the `browser_status` tool should return `{"connected": true}`.
 
 ## Tools (v0.5)
 
@@ -115,7 +123,7 @@ injected (`chrome://` and the like) the indication is silently skipped.
 | `browser_console_messages` | Tab console (with a regex filter) |
 | `browser_network_requests` | Tab network requests (with a regex filter) |
 | `browser_resize_window` | Window size |
-| `browser_gif_start` / `browser_gif_stop` | Record a GIF of the tab → file |
+| `browser_gif_start` / `browser_gif_stop` | Record a GIF of the tab → file; on long recordings the frame rate halves automatically, so the whole scenario fits |
 
 Everything except basic tab operations works through `chrome.debugger` (CDP):
 screenshots don't require activating the tab, clicks are real mouse events,
@@ -136,3 +144,7 @@ and console/network are collected from the first CDP touch of the tab.
   first touched.
 - Port 8929 is owned by one session: a second parallel Claude Code session
   cannot start its own WS server (the extension stays with the first one).
+
+## License
+
+[MIT](LICENSE)
