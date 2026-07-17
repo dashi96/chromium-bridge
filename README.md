@@ -100,7 +100,7 @@ injected (`chrome://` and the like) the indication is silently skipped.
 2. **MCP server** — either way:
    - via npm: `claude mcp add -s user chromium-bridge -- npx chromium-bridge`
    - from the clone: `cd server && npm install`, then
-     `claude mcp add -s user chromium-bridge -- node ~/projects/chromium-bridge/server/index.mjs`.
+     `claude mcp add -s user chromium-bridge -- node "$(pwd)/index.mjs"`.
 
    It loads at session start — restart your Claude Code session after
    installing the extension.
