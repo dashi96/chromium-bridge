@@ -7,6 +7,18 @@
   "bin": {
     "chromium-bridge": "index.mjs"
   },
+  "files": ["index.mjs", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dashi96/chromium-bridge.git"
+  },
+  "homepage": "https://github.com/dashi96/chromium-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/dashi96/chromium-bridge/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": ["mcp", "claude", "claude-code", "browser-automation", "chromium", "arc", "vivaldi", "brave", "chrome-extension", "cdp"],
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.212",

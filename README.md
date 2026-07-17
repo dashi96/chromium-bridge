@@ -94,15 +94,17 @@ injected (`chrome://` and the like) the indication is silently skipped.
 
 ## Installation
 
-1. **Extension**: open `chrome://extensions` (in the right space/profile!),
-   enable "Developer mode", click "Load unpacked", and pick the `extension/`
-   folder.
-2. **Dependencies**: `cd server && npm install`.
-3. **MCP server**:
-   `claude mcp add -s user chromium-bridge -- node ~/projects/chromium-bridge/server/index.mjs`.
+1. **Extension**: clone this repository, open `chrome://extensions` (in the
+   right space/profile!), enable "Developer mode", click "Load unpacked", and
+   pick the `extension/` folder.
+2. **MCP server** — either way:
+   - via npm: `claude mcp add -s user chromium-bridge -- npx chromium-bridge`
+   - from the clone: `cd server && npm install`, then
+     `claude mcp add -s user chromium-bridge -- node ~/projects/chromium-bridge/server/index.mjs`.
+
    It loads at session start — restart your Claude Code session after
    installing the extension.
-4. Check: the `browser_status` tool should return `{"connected": true}`.
+3. Check: the `browser_status` tool should return `{"connected": true}`.
 
 ## Tools (v0.5)
 
