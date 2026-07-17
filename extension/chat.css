@@ -56,23 +56,44 @@ body {
 }
 
 #logo, .empty-logo { color: var(--accent); }
+#logo { font-size: 16px; line-height: 1; }
 
 #header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
 }
 
 #model {
-  background: var(--tool-bg);
+  /* appearance:none removes the native chevron so its spacing is ours to control;
+     a custom chevron is drawn as a background SVG, symmetric with padding-left. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--tool-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%236e6d64' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.75 6 7.75 9 4.75'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
   color: var(--muted);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: 12px/1.4 inherit;
   font-family: inherit;
-  padding: 3px 6px;
+  padding: 3px 24px 3px 8px; /* left 8 = chevron's 8px right offset; right reserves the chevron */
+  margin-right: 8px;
   outline: none;
   cursor: pointer;
+  /* Width is set to fit the selected option in JS (fitModelWidth). This caps the
+     long runtime "Default (<model>)" option so it can't blow out the header. */
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-color-scheme: dark) {
+  #model {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a3a094' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.75 6 7.75 9 4.75'/%3E%3C/svg%3E");
+  }
 }
 
 #model:hover { color: var(--fg); }
@@ -81,11 +102,17 @@ body {
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 18px;
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
 }
+
+#header-actions button svg { width: 16px; height: 16px; display: block; }
 
 #header-actions button:hover { background: var(--tool-bg); color: var(--fg); }
 
@@ -368,11 +395,39 @@ body {
 #ask-bar label {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
 }
 
-#ask-bar input { accent-color: var(--accent); }
+#ask-bar input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background-color: var(--bg);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+#ask-bar input:hover { border-color: var(--accent); }
+
+#ask-bar input:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.2 5 8.7 9.5 3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px;
+}
+
+#ask-bar input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .confirm-card {
   align-self: stretch;
@@ -440,14 +495,26 @@ body {
   flex-shrink: 0;
   width: 34px;
   height: 34px;
+  /* Button is 7px shorter than the single-line input; composer pins to
+     flex-end for multiline, so lift the button half that to center it at rest. */
+  margin-bottom: 3.5px;
   border: none;
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 16px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+
+/* display:inline-flex above overrides the UA [hidden] rule, so restore it —
+   Send/Stop are toggled via the hidden attribute and must not both show. */
+#send[hidden], #stop[hidden] { display: none; }
 
 #send:disabled { opacity: .4; cursor: default; }
 
 #stop { background: var(--muted); }
+
+#send svg { width: 18px; height: 18px; display: block; }
+#stop svg { width: 12px; height: 12px; display: block; }

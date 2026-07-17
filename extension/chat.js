@@ -171,6 +171,27 @@ inputEl.placeholder = T.placeholder;
 sendEl.title = T.sendTitle;
 stopEl.title = T.stopTitle;
 
+// A native <select> stretches to its widest option, and option 0 becomes the
+// long "Default (<model>)" at runtime — so size the control to the currently
+// selected option's text instead. CSS max-width caps the long default case.
+const modelSizer = document.createElement('span');
+modelSizer.style.cssText = 'position:absolute; top:-9999px; left:-9999px; visibility:hidden; white-space:pre;';
+document.body.appendChild(modelSizer);
+function fitModelWidth() {
+  const opt = modelEl.options[modelEl.selectedIndex];
+  if (!opt) return;
+  const cs = getComputedStyle(modelEl);
+  modelSizer.style.fontSize = cs.fontSize;
+  modelSizer.style.fontFamily = cs.fontFamily;
+  modelSizer.style.fontWeight = cs.fontWeight;
+  modelSizer.style.fontStyle = cs.fontStyle;
+  modelSizer.style.letterSpacing = cs.letterSpacing;
+  modelSizer.textContent = opt.textContent;
+  const extra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+    + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth); // padding-right already reserves the chevron
+  modelEl.style.width = Math.ceil(modelSizer.getBoundingClientRect().width + extra) + 'px';
+}
+
 // Language selector: the choice is stored and applied via popup reload;
 // it is mirrored to chrome.storage so the service worker localizes the
 // on-page badge the same way.
@@ -347,7 +368,7 @@ function removeThinking() {
 }
 
 function toolLabel(name) {
-  const t = name.replace(/^mcp__browser__/, '');
+  const t = name.replace(/^mcp__.*?__/, '');
   return T.toolLabels[t] || t;
 }
 
@@ -451,7 +472,7 @@ function sendAsk() {
 
 // Human-readable description of the action for the confirmation card
 function confirmDetail(name, input) {
-  const t = name.replace(/^mcp__browser__/, '');
+  const t = name.replace(/^mcp__.*?__/, '');
   const i = input || {};
   const C = T.confirm;
   if (t === 'browser_computer') {
@@ -529,6 +550,7 @@ function connect() {
           // "claude-fable-5[1m]" → "fable-5"
           const short = msg.defaultModel.replace(/^claude-/, '').replace(/\[.*\]$/, '').replace(/-\d{8}$/, '');
           modelEl.options[0].textContent = T.defaultModelWith(short);
+          fitModelWidth();
         }
         break;
       case 'session':
@@ -689,7 +711,7 @@ historyBtn.addEventListener('click', () => {
 });
 
 document.addEventListener('click', (e) => {
-  if (!historyPanel.hidden && !historyPanel.contains(e.target) && e.target !== historyBtn) {
+  if (!historyPanel.hidden && !historyPanel.contains(e.target) && !historyBtn.contains(e.target)) {
     historyPanel.hidden = true;
   }
 });
@@ -723,15 +745,24 @@ askEl.addEventListener('change', () => {
 
 modelEl.value = localStorage.getItem('cbChatModel') || localStorage.getItem('arcChatModel') || '';
 if (modelEl.selectedIndex === -1) modelEl.value = '';
+fitModelWidth();
 
 modelEl.addEventListener('change', () => {
   localStorage.setItem('cbChatModel', modelEl.value);
+  fitModelWidth();
   sendModel();
 });
 
+// scrollHeight omits the border, but box-sizing is border-box, so add the
+// border back or the field shrinks by its border width on the first keystroke.
+const inputBorder = (() => {
+  const cs = getComputedStyle(inputEl);
+  return parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+})();
+
 inputEl.addEventListener('input', () => {
   inputEl.style.height = 'auto';
-  inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + 'px';
+  inputEl.style.height = Math.min(inputEl.scrollHeight + inputBorder, 140) + 'px';
   updateSendState();
 });
 
