@@ -98,6 +98,19 @@ Claude Code ⇄ (stdio MCP) ⇄ server/index.mjs ⇄ (WebSocket, 127.0.0.1:8929)
      `claude mcp add -s user chromium-bridge -- node "$(pwd)/index.mjs"`.
 
    Загружается при старте сессии — после установки расширения перезапустить сессию Claude Code.
+
+   Для других MCP-клиентов — добавить в конфиг:
+
+   ```json
+   {
+     "mcpServers": {
+       "chromium-bridge": {
+         "command": "npx",
+         "args": ["chromium-bridge"]
+       }
+     }
+   }
+   ```
 3. Проверка: инструмент `browser_status` должен вернуть `{"connected": true}`.
 
 ## Инструменты (v0.5)

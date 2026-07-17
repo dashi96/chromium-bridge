@@ -104,6 +104,19 @@ injected (`chrome://` and the like) the indication is silently skipped.
 
    It loads at session start — restart your Claude Code session after
    installing the extension.
+
+   For other MCP clients, add this to your config:
+
+   ```json
+   {
+     "mcpServers": {
+       "chromium-bridge": {
+         "command": "npx",
+         "args": ["chromium-bridge"]
+       }
+     }
+   }
+   ```
 3. Check: the `browser_status` tool should return `{"connected": true}`.
 
 ## Tools (v0.5)

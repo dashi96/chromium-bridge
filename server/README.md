@@ -15,6 +15,19 @@ Quick start:
 1. Load the extension (`extension/` folder from the repo) via `chrome://extensions` → "Load unpacked".
 2. Register the server:
    `claude mcp add -s user chromium-bridge -- npx chromium-bridge`
+
+   For other MCP clients, add this to your config:
+
+   ```json
+   {
+     "mcpServers": {
+       "chromium-bridge": {
+         "command": "npx",
+         "args": ["chromium-bridge"]
+       }
+     }
+   }
+   ```
 3. Restart your Claude Code session and check that `browser_status` returns `{"connected": true}`.
 
 MIT © Dashi Dantsaranov

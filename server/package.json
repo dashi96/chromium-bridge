@@ -1,6 +1,7 @@
 {
   "name": "chromium-bridge",
-  "version": "0.5.0",
+  "version": "0.5.1",
+  "mcpName": "io.github.dashi96/chromium-bridge",
   "description": "MCP bridge between Chromium-based browsers and Claude Code: browser automation without the tab groups API",
   "license": "MIT",
   "type": "commonjs",
