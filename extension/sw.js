@@ -396,7 +396,14 @@ const handlers = {
     try { await chrome.scripting.executeScript({ target: { tabId }, func: setGlowHidden, args: [true] }); } catch {}
     try {
       const params = { format: 'png' };
-      if (clip) params.clip = clip;
+      if (clip) {
+        // Clip coordinates arrive viewport-relative (that is what the model
+        // sees on screenshots), while CDP anchors the clip to the document —
+        // shift by the current scroll offset.
+        const lm = await cdp(tabId, 'Page.getLayoutMetrics');
+        const cvp = lm.cssVisualViewport || lm.visualViewport || {};
+        params.clip = { ...clip, x: (clip.x || 0) + (cvp.pageX || 0), y: (clip.y || 0) + (cvp.pageY || 0) };
+      }
       const { data } = await cdp(tabId, 'Page.captureScreenshot', params);
       return { dataUrl: 'data:image/png;base64,' + data };
     } catch (e) {
@@ -636,22 +643,47 @@ const handlers = {
     const vp = m.cssVisualViewport || m.visualViewport;
     const w = Math.round(vp.clientWidth);
     const h = Math.round(vp.clientHeight);
-    const scale = Math.min(1, targetWidth / w);
-    const rec = { frames: [], intervalMs, timer: null };
+    const { result } = await cdp(tabId, 'Runtime.evaluate', {
+      expression: 'window.devicePixelRatio', returnByValue: true,
+    });
+    const dpr = Number(result && result.value) || 1;
+    // The screenshot comes back in physical pixels (CSS px × dpr), so dpr must
+    // be part of the scale or a Retina tab blows past targetWidth twofold.
+    const scale = Math.min(1, targetWidth / (w * dpr));
+    const rec = { frames: [], intervalMs, timer: null, lastTs: 0, busy: false };
     const capture = async () => {
-      if (rec.frames.length >= maxFrames) { clearInterval(rec.timer); return; }
+      // MV3 service-worker timers do not honor their delay (observed firing at
+      // ~4x the requested rate), so the timer only ticks: whether a frame is
+      // due is decided by the wall clock, and each frame carries its real
+      // timestamp for playback timing.
+      if (rec.busy || Date.now() - rec.lastTs < rec.intervalMs) return;
+      rec.busy = true;
       try {
+        // The clip is document-anchored, and only the on-screen region is
+        // rasterized: without the current scroll offset every frame after a
+        // scroll would come out (partially) blank.
+        const lm = await cdp(tabId, 'Page.getLayoutMetrics');
+        const cvp = lm.cssVisualViewport || lm.visualViewport || {};
         const { data } = await cdp(tabId, 'Page.captureScreenshot', {
           format: 'png',
-          clip: { x: 0, y: 0, width: w, height: h, scale },
+          clip: { x: cvp.pageX || 0, y: cvp.pageY || 0, width: w, height: h, scale },
         });
-        rec.frames.push(data);
-      } catch {}
+        rec.lastTs = Date.now();
+        rec.frames.push({ data, ts: rec.lastTs });
+        if (rec.frames.length >= maxFrames) {
+          // Frame budget exhausted: drop every other frame and halve the rate,
+          // so a long scenario is recorded end to end instead of only its start.
+          rec.frames = rec.frames.filter((_, i) => i % 2 === 0);
+          rec.intervalMs *= 2;
+        }
+      } catch {} finally {
+        rec.busy = false;
+      }
     };
-    rec.timer = setInterval(capture, intervalMs);
+    rec.timer = setInterval(capture, Math.min(200, intervalMs));
     s.rec = rec;
     await capture();
-    return { ok: true, width: Math.round(w * scale), height: Math.round(h * scale) };
+    return { ok: true, width: Math.round(w * dpr * scale), height: Math.round(h * dpr * scale) };
   },
 
   async gif_stop({ tabId }) {

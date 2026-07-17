@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Chromium Bridge — MCP server.
 // WebSocket server for the browser extension + a full browser-automation toolset
 // in the spirit of the official Claude in Chrome: coordinate clicks, keyboard,
@@ -29,8 +30,24 @@ const httpServer = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('chromium-bridge');
 });
-httpServer.listen(PORT, '127.0.0.1');
-httpServer.on('error', (e) => console.error('[chromium-bridge] http server error:', e.message));
+let portRetries = 6;
+function listenWs() { httpServer.listen(PORT, '127.0.0.1'); }
+httpServer.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    // The port may be a stale bridge that is about to exit (e.g. during an MCP
+    // reconnect), so retry briefly before giving up.
+    if (portRetries-- > 0) {
+      console.error(`[chromium-bridge] port ${PORT} busy, retrying in 500ms (${portRetries} left)`);
+      setTimeout(listenWs, 500);
+      return;
+    }
+    console.error(`[chromium-bridge] port ${PORT} is held by another process. Free it (lsof -ti:${PORT} | xargs kill) or set CHROMIUM_BRIDGE_PORT. Exiting.`);
+    process.exit(1);
+    return;
+  }
+  console.error('[chromium-bridge] http server error:', e.message);
+});
+listenWs();
 
 const wss = new WebSocketServer({
   server: httpServer,
@@ -361,7 +378,7 @@ defTool(
 
 defTool(
   'browser_gif_start',
-  'Start recording a GIF of the tab (a frame every intervalMs, 80 frames max)',
+  'Start recording a GIF of the tab (a frame every intervalMs; on long recordings the frame rate halves automatically to stay within 80 frames)',
   { tabId: z.number(), intervalMs: z.number().optional().describe('frame interval, default 800ms') },
   async ({ tabId, intervalMs }) => text(await call('gif_start', { tabId, intervalMs }, 30000)),
 );
@@ -375,14 +392,20 @@ defTool(
     if (!frames.length) throw new Error('no frames were recorded');
     const gif = GIFEncoder();
     let w0, h0, used = 0;
-    for (const b64 of frames) {
+    for (let i = 0; i < frames.length; i++) {
+      const f = frames[i];
+      const b64 = typeof f === 'string' ? f : f.data;
       const png = PNG.sync.read(Buffer.from(b64, 'base64'));
       if (w0 === undefined) { w0 = png.width; h0 = png.height; }
       if (png.width !== w0 || png.height !== h0) continue;
       const rgba = new Uint8Array(png.data.buffer, png.data.byteOffset, png.data.length);
       const palette = quantize(rgba, 256);
       const index = applyPalette(rgba, palette);
-      gif.writeFrame(index, w0, h0, { palette, delay: intervalMs });
+      // Playback follows the real capture timestamps, not the nominal interval:
+      // frames may be captured irregularly (slow pages, thinned-out recordings).
+      const next = frames[i + 1];
+      const delay = next && next.ts && f.ts ? Math.max(20, next.ts - f.ts) : intervalMs;
+      gif.writeFrame(index, w0, h0, { palette, delay });
       used++;
     }
     gif.finish();
@@ -622,3 +645,12 @@ function handleChatConnection(ws) {
 
 await server.connect(new StdioServerTransport());
 console.error(`[chromium-bridge] MCP server v0.5 ready: MCP on stdio, extension and chat on ws://127.0.0.1:${PORT}`);
+
+// No daemon: the server must die with its parent. When Claude Code closes the
+// stdio pipe (session ends or MCP reconnects), exit — otherwise the process is
+// reparented to launchd and keeps squatting the WS port, blocking the next start.
+const shutdown = () => process.exit(0);
+process.stdin.on('end', shutdown);
+process.stdin.on('close', shutdown);
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
