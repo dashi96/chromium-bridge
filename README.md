@@ -1,4 +1,4 @@
-# Chromium Bridge
+# <img src="extension/icons/icon128.png" width="32" alt="" align="top"> Chromium Bridge
 
 [Русская версия](README.ru.md)
 
