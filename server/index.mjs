@@ -11,7 +11,6 @@ import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { query, tool as sdkTool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { PNG } from 'pngjs';
 import gifenc from 'gifenc';
@@ -19,6 +18,15 @@ const { GIFEncoder, quantize, applyPalette } = gifenc;
 
 const PORT = Number(process.env.CHROMIUM_BRIDGE_PORT) || 8929;
 const VERSION = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url))).version;
+
+// The Agent SDK powers only the chat panel and is heavy (bundles its own CLI),
+// so it is loaded lazily: distributions without it (e.g. the Smithery MCPB
+// bundle) still serve the browser tools, and the panel reports a clear error.
+let agentSdk = null;
+function loadAgentSdk() {
+  if (!agentSdk) agentSdk = import('@anthropic-ai/claude-agent-sdk');
+  return agentSdk;
+}
 
 let sock = null;
 let nextId = 1;
@@ -423,11 +431,11 @@ defTool(
 // An in-process MCP server is created per panel connection: a wrapper around
 // the tools forwards images from results (screenshots, zoom) to that
 // particular chat window.
-function makeBrowserSdkServer(onImage) {
-  return createSdkMcpServer({
+function makeBrowserSdkServer(sdk, onImage) {
+  return sdk.createSdkMcpServer({
     name: 'browser',
     version: VERSION,
-    tools: toolDefs.map(t => sdkTool(t.name, t.description, t.shape, async (args) => {
+    tools: toolDefs.map(t => sdk.tool(t.name, t.description, t.shape, async (args) => {
       const res = await t.handler(args);
       try {
         for (const block of (res && res.content) || []) {
@@ -470,7 +478,21 @@ function needsConfirm(toolName, input) {
   return false;
 }
 
-function handleChatConnection(ws) {
+async function handleChatConnection(ws) {
+  let sdk;
+  try {
+    sdk = await loadAgentSdk();
+  } catch {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: 'fatal',
+        message: 'Chat requires the full npm install (@anthropic-ai/claude-agent-sdk): npx chromium-bridge',
+      }));
+    }
+    ws.close();
+    return;
+  }
+  const { query } = sdk;
   let session = null;
   let chatModel = process.env.CHROMIUM_BRIDGE_CHAT_MODEL || null;
   let askMode = false;
@@ -482,7 +504,7 @@ function handleChatConnection(ws) {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
 
-  const browserSdkServer = makeBrowserSdkServer((block) => {
+  const browserSdkServer = makeBrowserSdkServer(sdk, (block) => {
     send({ type: 'screenshot', data: block.data, mimeType: block.mimeType || 'image/png' });
   });
 
