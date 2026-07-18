@@ -62,7 +62,9 @@ the same choice.
   explicitly), the other entries are hard overrides. Switching applies on the
   fly (`setModel`) and is remembered. Startup override:
   `CHROMIUM_BRIDGE_CHAT_MODEL=sonnet` in the server environment.
-  Port: `CHROMIUM_BRIDGE_PORT` (8929 by default).
+  Port: `CHROMIUM_BRIDGE_PORT` (8929 by default) — server side only; the
+  extension always connects to 8929, so changing the port also means editing
+  `WS_URL` in `extension/sw.js` and `extension/chat.js`.
 - Chat history: the 🕓 button in the header lists past conversations (stored
   in the panel's localStorage, the last 30).
 - After each turn there is a usage line: turn tokens (↑ input incl. cache /
@@ -148,9 +150,15 @@ and console/network are collected from the first CDP touch of the tab.
 
 - The extension lives in one browser profile — install it in the one you want
   to automate.
-- The service worker can go to sleep; a keepalive alarm wakes it every ~30
-  seconds, and the server waits up to 12 seconds for reconnection before
-  erroring.
+- While the server is running, its periodic ping keeps the extension's service
+  worker awake. If the worker is asleep anyway (e.g. the server has just
+  started), a keepalive alarm wakes it within ~30 seconds, and the server waits
+  up to 12 seconds for reconnection before erroring.
+- Trust model: the WS server listens on 127.0.0.1 and rejects connections
+  whose Origin is not `chrome-extension://…`, which keeps web pages out. It
+  does not distinguish between extensions, and a non-browser local process can
+  fake the Origin header — anything running as your user is trusted, like with
+  most local dev tools. Don't run the bridge on a shared machine.
 - On the first CDP action the browser shows a "Chromium Bridge started
   debugging this browser" bar — that's normal, the debugger is the control
   mechanism. Closing the bar detaches the debugger (the next action

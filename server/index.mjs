@@ -58,11 +58,29 @@ httpServer.on('error', (e) => {
 });
 listenWs();
 
-const wss = new WebSocketServer({
-  server: httpServer,
-  // Browser extensions only: regular pages have an https://… Origin
-  verifyClient: (info) => (info.origin || '').startsWith('chrome-extension://'),
+// Browser extensions only: regular pages have an https://… Origin and cannot
+// fake it. A non-browser local process can, but it runs as the same user and
+// could just as well launch `claude` directly — the bridge trusts the machine,
+// like most local dev tools. (Manual upgrade handling instead of the
+// deprecated verifyClient option.)
+const wss = new WebSocketServer({ noServer: true });
+httpServer.on('upgrade', (req, socket, head) => {
+  if (!(req.headers.origin || '').startsWith('chrome-extension://')) {
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
+
+// Open chat panels: they get the extension's connect/disconnect status pushed
+// so the "extension not connected" bar reflects reality without reopening.
+const chatClients = new Set();
+function broadcastExtensionStatus() {
+  for (const c of chatClients) {
+    if (c.readyState === 1) c.send(JSON.stringify({ type: 'hello', extension: connected() }));
+  }
+}
 
 wss.on('connection', (ws, req) => {
   if (req.url && req.url.startsWith('/chat')) {
@@ -71,19 +89,39 @@ wss.on('connection', (ws, req) => {
   }
   sock = ws;
   console.error('[chromium-bridge] extension connected');
+  broadcastExtensionStatus();
   ws.on('message', (data) => {
     let msg;
     try { msg = JSON.parse(data); } catch { return; }
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
+    clearTimeout(p.timer);
     if (msg.error) p.reject(new Error(msg.error));
     else p.resolve(msg.result);
   });
-  ws.on('close', () => { if (sock === ws) sock = null; });
+  ws.on('close', () => {
+    if (sock !== ws) return;
+    sock = null;
+    broadcastExtensionStatus();
+    // In-flight commands will never be answered — fail them now instead of
+    // letting each one sit out its full timeout.
+    for (const p of pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(new Error('The extension disconnected while executing the command'));
+    }
+    pending.clear();
+  });
 });
 
 wss.on('error', (e) => console.error('[chromium-bridge] ws server error:', e.message));
+
+// MV3 kills an idle service worker after ~30s, but an incoming WS message
+// resets that timer — a periodic ping keeps the extension awake and connected
+// for as long as the server lives. (The reply carries id:0, which nobody awaits.)
+setInterval(() => {
+  if (connected()) sock.send(JSON.stringify({ id: 0, cmd: 'ping' }));
+}, 20000);
 
 function connected() {
   return !!(sock && sock.readyState === 1);
@@ -104,11 +142,11 @@ async function call(cmd, args = {}, timeoutMs = 20000) {
   }
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    pending.set(id, { resolve, reject });
-    sock.send(JSON.stringify({ id, cmd, args }));
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (pending.delete(id)) reject(new Error(`The extension did not respond within ${timeoutMs / 1000}s (command ${cmd})`));
     }, timeoutMs);
+    pending.set(id, { resolve, reject, timer });
+    sock.send(JSON.stringify({ id, cmd, args }));
   });
 }
 
@@ -467,8 +505,9 @@ function claudeDefaultModel() {
   }
 }
 
-// Mutating actions that require confirmation in "ask before acting" mode
-const CONFIRM_TOOLS = new Set(['browser_navigate', 'browser_tab_close', 'browser_click', 'browser_form_input', 'browser_javascript', 'browser_upload_file']);
+// Mutating actions that require confirmation in "ask before acting" mode.
+// tab_create takes a URL (it is navigation), gif_stop writes a file to disk.
+const CONFIRM_TOOLS = new Set(['browser_navigate', 'browser_tab_create', 'browser_tab_close', 'browser_click', 'browser_form_input', 'browser_javascript', 'browser_upload_file', 'browser_gif_stop']);
 const CONFIRM_COMPUTER_ACTIONS = new Set(['left_click', 'right_click', 'double_click', 'triple_click', 'left_click_drag', 'type', 'key']);
 
 function needsConfirm(toolName, input) {
@@ -492,6 +531,7 @@ async function handleChatConnection(ws) {
     ws.close();
     return;
   }
+  chatClients.add(ws);
   const { query } = sdk;
   let session = null;
   let chatModel = process.env.CHROMIUM_BRIDGE_CHAT_MODEL || null;
@@ -656,6 +696,7 @@ async function handleChatConnection(ws) {
   });
 
   ws.on('close', () => {
+    chatClients.delete(ws);
     rejectConfirms();
     if (session) {
       const old = session;
@@ -667,7 +708,7 @@ async function handleChatConnection(ws) {
 }
 
 await server.connect(new StdioServerTransport());
-console.error(`[chromium-bridge] MCP server v0.5 ready: MCP on stdio, extension and chat on ws://127.0.0.1:${PORT}`);
+console.error(`[chromium-bridge] MCP server v${VERSION} ready: MCP on stdio, extension and chat on ws://127.0.0.1:${PORT}`);
 
 // No daemon: the server must die with its parent. When Claude Code closes the
 // stdio pipe (session ends or MCP reconnects), exit — otherwise the process is

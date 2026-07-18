@@ -27,6 +27,7 @@ async function connect() {
       ws = new WebSocket(WS_URL);
     } catch (e) {
       ws = null;
+      setTimeout(connect, 3000);
       return;
     }
   } finally {
@@ -259,6 +260,12 @@ for (let i = 1; i <= 12; i++) KEYS['f' + i] = { key: 'F' + i, code: 'F' + i, key
 
 const MODIFIER_BITS = { alt: 1, option: 1, ctrl: 2, control: 2, meta: 4, cmd: 4, command: 4, win: 4, windows: 4, shift: 8 };
 
+// On macOS cmd-shortcuts (cmd+a etc.) are handled at the browser level, which
+// synthetic CDP key events never reach — the editing command must be attached
+// to the key event explicitly. ctrl-combos on Windows/Linux are handled by the
+// renderer and need no such help (and duplicating them would double-execute).
+const META_EDIT_COMMANDS = { a: 'selectAll', c: 'copy', x: 'cut', v: 'paste', z: 'undo' };
+
 function parseCombo(combo) {
   let modifiers = 0;
   let keyDef = null;
@@ -288,6 +295,11 @@ async function pressKey(tabId, combo) {
   const base = { modifiers, key: keyDef.key, code: keyDef.code, windowsVirtualKeyCode: keyDef.keyCode, nativeVirtualKeyCode: keyDef.keyCode };
   const down = { ...base, type: keyDef.text && !(modifiers & ~8) ? 'keyDown' : 'rawKeyDown' };
   if (keyDef.text && !(modifiers & ~8)) down.text = keyDef.text;
+  if (modifiers & 4) {
+    let editCmd = META_EDIT_COMMANDS[keyDef.key.toLowerCase()];
+    if (editCmd === 'undo' && (modifiers & 8)) editCmd = 'redo'; // cmd+shift+z
+    if (editCmd) down.commands = [editCmd];
+  }
   await cdp(tabId, 'Input.dispatchKeyEvent', down);
   await cdp(tabId, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' });
 }
@@ -407,11 +419,16 @@ const handlers = {
       const { data } = await cdp(tabId, 'Page.captureScreenshot', params);
       return { dataUrl: 'data:image/png;base64,' + data };
     } catch (e) {
-      // Fallback without the debugger: activate the tab and capture the visible area
+      // Fallback without the debugger: activate the tab, capture the visible
+      // area, then give the focus back to whatever tab the user was on
       const tab = await chrome.tabs.get(tabId);
+      const [prevActive] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
       await chrome.tabs.update(tabId, { active: true });
       await new Promise(r => setTimeout(r, 350));
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      if (prevActive && prevActive.id !== tabId) {
+        try { await chrome.tabs.update(prevActive.id, { active: true }); } catch {}
+      }
       return { dataUrl };
     } finally {
       // Restore the glow if it is still active

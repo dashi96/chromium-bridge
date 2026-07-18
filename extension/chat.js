@@ -53,7 +53,9 @@ const T = RU ? {
     atPoint: (xy) => 'в точке ' + xy,
     atRef: (ref) => 'по элементу ' + ref,
     navigate: (url) => 'Перейти по адресу: ' + url,
+    openTab: (url) => 'Открыть вкладку: ' + url,
     closeTab: (id) => 'Закрыть вкладку ' + id,
+    saveGif: (path) => 'Сохранить GIF в ' + path,
     clickSelector: (sel) => 'Кликнуть по селектору: ' + sel,
     fill: (target, value) => 'Заполнить ' + target + ' значением «' + value + '»',
     field: 'поле',
@@ -120,7 +122,9 @@ const T = RU ? {
     atPoint: (xy) => 'at ' + xy,
     atRef: (ref) => 'on element ' + ref,
     navigate: (url) => 'Navigate to: ' + url,
+    openTab: (url) => 'Open a tab: ' + url,
     closeTab: (id) => 'Close tab ' + id,
+    saveGif: (path) => 'Save GIF to ' + path,
     clickSelector: (sel) => 'Click selector: ' + sel,
     fill: (target, value) => 'Fill ' + target + ' with “' + value + '”',
     field: 'field',
@@ -212,6 +216,9 @@ let currentText = null;    // div of the current response
 let currentRaw = '';       // raw text of the current response
 let thinkingEl = null;
 let stopRequested = false; // user pressed stop — don't show the turn error
+let sessionChat = null;    // chat the in-flight server session belongs to: the
+                           // 'session' event must land there even if the user
+                           // has switched to another chat meanwhile
 
 // ===== Chat storage =====
 
@@ -484,7 +491,9 @@ function confirmDetail(name, input) {
     return C.click(a, place);
   }
   if (t === 'browser_navigate') return C.navigate(i.url);
+  if (t === 'browser_tab_create') return C.openTab(i.url || 'about:blank');
   if (t === 'browser_tab_close') return C.closeTab(i.tabId);
+  if (t === 'browser_gif_stop') return C.saveGif(i.path);
   if (t === 'browser_click') return C.clickSelector(i.selector);
   if (t === 'browser_form_input') return C.fill(i.selector || i.ref || C.field, String(i.value).slice(0, 60));
   if (t === 'browser_javascript') return C.js(String(i.code || '').slice(0, 120));
@@ -554,7 +563,7 @@ function connect() {
         }
         break;
       case 'session':
-        chat.sessionId = msg.id;
+        (sessionChat || chat).sessionId = msg.id;
         saveChats();
         break;
       case 'delta': appendDelta(msg.text); break;
@@ -638,6 +647,7 @@ function send() {
   scrollDown(true);
   // images are not recorded in history (base64 would overflow localStorage quickly)
   record('u', shownText + (images.length ? T.imagesSuffix(images.length) : ''));
+  sessionChat = chat;
   ws.send(JSON.stringify({
     type: 'user',
     text: shownText,
