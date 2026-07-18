@@ -1,6 +1,6 @@
 {
   "name": "chromium-bridge",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "mcpName": "io.github.dashi96/chromium-bridge",
   "description": "MCP bridge between Chromium-based browsers and Claude Code: browser automation without the tab groups API",
   "license": "MIT",
@@ -8,7 +8,10 @@
   "bin": {
     "chromium-bridge": "index.mjs"
   },
-  "files": ["index.mjs", "README.md"],
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dashi96/chromium-bridge.git"
@@ -20,7 +23,18 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["mcp", "claude", "claude-code", "browser-automation", "chromium", "arc", "vivaldi", "brave", "chrome-extension", "cdp"],
+  "keywords": [
+    "mcp",
+    "claude",
+    "claude-code",
+    "browser-automation",
+    "chromium",
+    "arc",
+    "vivaldi",
+    "brave",
+    "chrome-extension",
+    "cdp"
+  ],
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.212",
     "@modelcontextprotocol/sdk": "^1.29.0",
