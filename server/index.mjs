@@ -18,6 +18,7 @@ import gifenc from 'gifenc';
 const { GIFEncoder, quantize, applyPalette } = gifenc;
 
 const PORT = Number(process.env.CHROMIUM_BRIDGE_PORT) || 8929;
+const VERSION = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url))).version;
 
 let sock = null;
 let nextId = 1;
@@ -103,7 +104,7 @@ async function call(cmd, args = {}, timeoutMs = 20000) {
   });
 }
 
-const server = new McpServer({ name: 'chromium-bridge', version: '0.5.0' });
+const server = new McpServer({ name: 'chromium-bridge', version: VERSION });
 
 // Each tool is registered twice: in the stdio MCP server (for Claude Code)
 // and in toolDefs — the in-process MCP server for the chat panel is built from it.
@@ -425,7 +426,7 @@ defTool(
 function makeBrowserSdkServer(onImage) {
   return createSdkMcpServer({
     name: 'browser',
-    version: '0.5.0',
+    version: VERSION,
     tools: toolDefs.map(t => sdkTool(t.name, t.description, t.shape, async (args) => {
       const res = await t.handler(args);
       try {
