@@ -313,6 +313,33 @@ async function exec(tabId, func, args = []) {
   return value;
 }
 
+// Screenshots come back in physical pixels; scale the image down to CSS px so
+// coordinates taken from it match mouse actions and element refs. On any
+// failure the original is kept — a 2x image is still better than no screenshot.
+async function toCssScale(tabId, dataUrl) {
+  try {
+    const dpr = await exec(tabId, () => window.devicePixelRatio);
+    if (!dpr || dpr <= 1) return dataUrl;
+    // base64 → bytes by hand: fetch() rejects data: URLs in MV3 service workers
+    const bin = atob(dataUrl.split(',')[1]);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const w = Math.round(bmp.width / dpr);
+    const h = Math.round(bmp.height / dpr);
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    const buf = new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
+    let out = '';
+    for (let i = 0; i < buf.length; i += 0x8000) {
+      out += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    }
+    return 'data:image/png;base64,' + btoa(out);
+  } catch {
+    return dataUrl;
+  }
+}
+
 async function refToBackendNode(tabId, ref) {
   const s = state(tabId);
   const backendNodeId = s.refs.get(ref);
@@ -411,13 +438,26 @@ const handlers = {
       if (clip) {
         // Clip coordinates arrive viewport-relative (that is what the model
         // sees on screenshots), while CDP anchors the clip to the document —
-        // shift by the current scroll offset.
+        // shift by the current scroll offset. The scale is divided by dpr so
+        // zoom magnifies the same on any display (clips rasterize in physical
+        // pixels: CSS px × dpr × scale).
         const lm = await cdp(tabId, 'Page.getLayoutMetrics');
         const cvp = lm.cssVisualViewport || lm.visualViewport || {};
-        params.clip = { ...clip, x: (clip.x || 0) + (cvp.pageX || 0), y: (clip.y || 0) + (cvp.pageY || 0) };
+        const { result } = await cdp(tabId, 'Runtime.evaluate', {
+          expression: 'window.devicePixelRatio', returnByValue: true,
+        });
+        const dpr = Number(result && result.value) || 1;
+        params.clip = { ...clip, x: (clip.x || 0) + (cvp.pageX || 0), y: (clip.y || 0) + (cvp.pageY || 0), scale: (clip.scale || 1) / dpr };
+        const { data } = await cdp(tabId, 'Page.captureScreenshot', params);
+        return { dataUrl: 'data:image/png;base64,' + data };
       }
       const { data } = await cdp(tabId, 'Page.captureScreenshot', params);
-      return { dataUrl: 'data:image/png;base64,' + data };
+      // The capture comes back in physical pixels; on Retina that is 2x the
+      // CSS coordinate space the mouse/keyboard actions and refs live in, and
+      // coordinates the model takes from such a screenshot land at half the
+      // intended point. (Downscaled after the fact: fractional clip.scale
+      // values make captureScreenshot return empty data on some setups.)
+      return { dataUrl: await toCssScale(tabId, 'data:image/png;base64,' + data) };
     } catch (e) {
       // Fallback without the debugger: activate the tab, capture the visible
       // area, then give the focus back to whatever tab the user was on
@@ -429,7 +469,7 @@ const handlers = {
       if (prevActive && prevActive.id !== tabId) {
         try { await chrome.tabs.update(prevActive.id, { active: true }); } catch {}
       }
-      return { dataUrl };
+      return { dataUrl: await toCssScale(tabId, dataUrl) };
     } finally {
       // Restore the glow if it is still active
       try { await chrome.scripting.executeScript({ target: { tabId }, func: setGlowHidden, args: [false] }); } catch {}
