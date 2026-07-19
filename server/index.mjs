@@ -183,7 +183,7 @@ function parseModifiers(str) {
 
 defTool(
   'browser_status',
-  'Check whether the browser extension is connected to the bridge',
+  'Check whether the browser extension is connected to the bridge. Returns {connected: boolean}. Read-only, no side effects. Call it first in a session, or when other browser_* tools fail, to distinguish "extension not connected" from page-level errors.',
   {},
   async () => {
     if (!connected()) await waitForSock(3000);
@@ -195,36 +195,36 @@ defTool(
 
 defTool(
   'browser_tabs_list',
-  'List open browser tabs (id, title, URL)',
+  'List all open browser tabs with their id, title, and URL. Read-only. Use it to pick a tabId for the other browser_* tools; prefer reusing an existing tab over creating a new one when the target page is already open.',
   {},
   async () => text(await call('tabs_list')),
 );
 
 defTool(
   'browser_tab_create',
-  'Open a new browser tab',
+  'Open a new browser tab and return its id and windowId. Mutating: adds a tab to the user\'s real browser and focuses it. Use when a fresh page is needed; to work with a page that is already open, find its id via browser_tabs_list instead.',
   { url: z.string().optional().describe('URL for the new tab (blank by default)') },
   async ({ url }) => text(await call('tab_create', { url })),
 );
 
 defTool(
   'browser_tab_close',
-  'Close a browser tab by id',
-  { tabId: z.number() },
+  'Close a browser tab by id. Destructive: the tab and its unsaved page state are gone, with no undo. Close only tabs this session created, unless the user explicitly asked to close theirs.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create') },
   async ({ tabId }) => text(await call('tab_close', { tabId })),
 );
 
 defTool(
   'browser_navigate',
-  'Navigate the given tab to a URL; url may be "back" or "forward" for history navigation',
-  { tabId: z.number(), url: z.string() },
+  'Navigate an existing tab to a URL, or move through its history with url="back" / url="forward". Mutating: replaces the page currently shown in that tab. Returns when navigation is committed; dynamic pages may still be rendering — verify with browser_page_text or a screenshot before interacting.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), url: z.string().describe('absolute URL, or "back"/"forward" for history') },
   async ({ tabId, url }) => text(await call('navigate', { tabId, url })),
 );
 
 defTool(
   'browser_page_text',
-  'Get the page title, URL, and visible text',
-  { tabId: z.number() },
+  'Get a tab\'s title, URL, and visible text (up to 80 kB) from the live DOM. Read-only and cheap — prefer it over a screenshot whenever layout does not matter. Content rendered to canvas or images is invisible to it; use a browser_computer screenshot for those.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create') },
   async ({ tabId }) => text(await call('page_text', { tabId })),
 );
 
@@ -232,20 +232,22 @@ defTool(
 
 defTool(
   'browser_computer',
-  'Mouse, keyboard, and screenshots in a browser tab (via the DevTools protocol; the tab does not need to be active). ' +
-  'Actions: screenshot, zoom (region), left_click, right_click, double_click, triple_click, hover, ' +
-  'left_click_drag (start_coordinate→coordinate), type (text), key (text = space-separated combos, e.g. "cmd+a Backspace"), ' +
-  'scroll (scroll_direction+scroll_amount), scroll_to (ref), wait (duration). ' +
-  'Coordinates — coordinate:[x,y] or a ref from browser_read_page/browser_find.',
+  'Mouse, keyboard, and screenshots in a browser tab via the DevTools protocol; the tab does not need to be active (first use shows Chrome\'s "started debugging" info bar — that is expected). ' +
+  'Actions: screenshot (viewport image in CSS pixels — its coordinates map 1:1 to click coordinates), zoom (magnified region [x0,y0,x1,y1]), ' +
+  'left_click, right_click, double_click, triple_click, hover, left_click_drag (start_coordinate→coordinate), ' +
+  'type (insert text at the current focus), key (space-separated combos, e.g. "cmd+a Backspace"), ' +
+  'scroll (scroll_direction+scroll_amount), scroll_to (ref), wait (duration, max 10 s). ' +
+  'Clicks, typing, and key presses are real input events and mutate page state; screenshot/zoom/hover/wait are read-only. ' +
+  'Positions come from coordinate:[x,y] or from a ref returned by browser_read_page/browser_find — refs are more reliable than eyeballed coordinates.',
   {
-    tabId: z.number(),
-    action: z.enum(['screenshot', 'zoom', 'left_click', 'right_click', 'double_click', 'triple_click', 'hover', 'left_click_drag', 'type', 'key', 'scroll', 'scroll_to', 'wait']),
+    tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'),
+    action: z.enum(['screenshot', 'zoom', 'left_click', 'right_click', 'double_click', 'triple_click', 'hover', 'left_click_drag', 'type', 'key', 'scroll', 'scroll_to', 'wait']).describe('what to do; see the tool description for each action\'s required parameters'),
     coordinate: z.array(z.number()).length(2).optional().describe('[x, y] in pixels'),
     start_coordinate: z.array(z.number()).length(2).optional().describe('drag start for left_click_drag'),
     ref: z.string().optional().describe('element ref from browser_read_page/browser_find — alternative to coordinate'),
     text: z.string().optional().describe('text for type, or key combos for key'),
     modifiers: z.string().optional().describe('click modifiers: cmd, ctrl, alt, shift (joined with +)'),
-    scroll_direction: z.enum(['up', 'down', 'left', 'right']).optional(),
+    scroll_direction: z.enum(['up', 'down', 'left', 'right']).optional().describe('for scroll; default down'),
     scroll_amount: z.number().optional().describe('wheel ticks, default 3'),
     region: z.array(z.number()).length(4).optional().describe('[x0, y0, x1, y1] for zoom'),
     duration: z.number().optional().describe('seconds for wait (max 10)'),
@@ -323,8 +325,8 @@ defTool(
 
 defTool(
   'browser_read_page',
-  'Accessibility tree of the page with element ref ids (for ref clicks in browser_computer). filter=interactive — interactive elements only',
-  { tabId: z.number(), filter: z.enum(['all', 'interactive']).optional() },
+  'Accessibility tree of the page with a ref id per element; use refs with browser_computer (clicks, scroll_to) and browser_form_input. filter=interactive returns only clickable/editable elements — a compact map of the page. Read-only. Refs go stale after navigation or heavy DOM changes; call again to refresh.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), filter: z.enum(['all', 'interactive']).optional().describe('interactive — only clickable/editable elements; default all') },
   async ({ tabId, filter }) => {
     const r = await call('ax_tree', { tabId, interactiveOnly: filter === 'interactive' }, 30000);
     return text(r.tree + `\n\n(elements with refs: ${r.refCount})`);
@@ -333,8 +335,8 @@ defTool(
 
 defTool(
   'browser_find',
-  'Find elements on the page by text/name/role; returns refs for clicking',
-  { tabId: z.number(), query: z.string() },
+  'Find elements by visible text, accessible name, or role, and return their refs for use with browser_computer and browser_form_input. Read-only. Cheaper than reading the whole accessibility tree when you know what you are looking for. An empty result means nothing matched — not an error.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), query: z.string().describe('visible text, accessible name, or ARIA role to search for') },
   async ({ tabId, query }) => text(await call('find', { tabId, query }, 30000)),
 );
 
@@ -342,12 +344,12 @@ defTool(
 
 defTool(
   'browser_form_input',
-  'Set a form element value: input/textarea/contenteditable (text), select (option value or label), checkbox/radio ("true"/"false"). Target is given by selector or ref',
+  'Set a form control\'s value directly in the DOM: input/textarea/contenteditable (text), select (option value or label), checkbox/radio ("true"/"false"). Fires input/change events so frameworks pick the value up. Mutating. Target by CSS selector or ref. Reliable for plain form fields; rich editors (CodeMirror and the like) and custom comboboxes often ignore it — for those, click the field with browser_computer and type.',
   {
-    tabId: z.number(),
+    tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'),
     selector: z.string().optional().describe('CSS selector'),
     ref: z.string().optional().describe('ref from browser_read_page/browser_find'),
-    value: z.string(),
+    value: z.string().describe('new value; for checkbox/radio pass "true" or "false"'),
   },
   async ({ tabId, selector, ref, value }) => {
     if (!selector && !ref) throw new Error('selector or ref is required');
@@ -357,15 +359,15 @@ defTool(
 
 defTool(
   'browser_click',
-  'Click an element by CSS selector (DOM .click(); for real mouse clicks use browser_computer)',
-  { tabId: z.number(), selector: z.string() },
+  'Click an element via DOM .click() by CSS selector. Mutating. Works without the debugger — including on pages where CDP attach fails — but only fires the click handler, with no hover/focus/mousedown chain. If the page ignores it (custom dropdowns, canvas UI), use browser_computer left_click for a real mouse event.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), selector: z.string().describe('CSS selector of the element to click (first match)') },
   async ({ tabId, selector }) => text(await call('click', { tabId, selector })),
 );
 
 defTool(
   'browser_upload_file',
-  'Put local files into an <input type="file"> by CSS selector',
-  { tabId: z.number(), selector: z.string(), files: z.array(z.string()).describe('absolute file paths') },
+  'Put local files into an <input type="file"> selected by CSS selector, as if the user picked them in the file dialog (fires change). Mutating. files are absolute paths on the user\'s machine; the input must already exist in the DOM.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), selector: z.string().describe('CSS selector of the <input type="file">'), files: z.array(z.string()).describe('absolute file paths on the user\'s machine') },
   async ({ tabId, selector, files }) => text(await call('upload_file', { tabId, selector, files })),
 );
 
@@ -373,16 +375,16 @@ defTool(
 
 defTool(
   'browser_javascript',
-  'Run JavaScript in the page context and return the result (await is supported)',
-  { tabId: z.number(), code: z.string() },
+  'Run arbitrary JavaScript in the page context and return the resolved value (await is supported; runs with the page\'s own permissions). Can read and mutate anything on the page — treat as mutating unless the code is clearly read-only. Never call alert/confirm/prompt: modal dialogs freeze all automation. Requires the CDP debugger.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), code: z.string().describe('JavaScript source; may use await — the value of the last expression is returned') },
   async ({ tabId, code }) => text(await call('eval', { tabId, code }, 30000)),
 );
 
 defTool(
   'browser_console_messages',
-  'Console messages of a tab (collected from the first time any CDP tool touches the tab)',
+  'Read a tab\'s console output (log/warn/error), newest 200 entries. Read-only unless clear=true, which empties the buffer after reading. Messages are captured only from the first time a CDP tool touches the tab — nothing is recorded retroactively; reload the page after attaching to capture its startup logs. Use pattern (regex) to cut noise.',
   {
-    tabId: z.number(),
+    tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'),
     pattern: z.string().optional().describe('regex filter over the message text'),
     clear: z.boolean().optional().describe('clear the buffer after reading'),
   },
@@ -398,11 +400,11 @@ defTool(
 
 defTool(
   'browser_network_requests',
-  'Network requests of a tab (method, URL, status; collected from the first time the tab is touched)',
+  'List a tab\'s network requests (method, URL, status), newest 200. Read-only unless clear=true, which empties the buffer. Captured only from the first CDP touch of the tab — reload the page after attaching to see its full traffic. urlPattern (regex) filters by URL.',
   {
-    tabId: z.number(),
+    tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'),
     urlPattern: z.string().optional().describe('regex filter over the URL'),
-    clear: z.boolean().optional(),
+    clear: z.boolean().optional().describe('empty the buffer after reading'),
   },
   async ({ tabId, urlPattern, clear }) => {
     let reqs = await call('network_read', { tabId, clear });
@@ -418,22 +420,22 @@ defTool(
 
 defTool(
   'browser_resize_window',
-  'Resize the browser window that contains the tab',
-  { tabId: z.number(), width: z.number(), height: z.number() },
+  'Resize the browser window that contains the tab to width×height CSS pixels. Mutating and user-visible: it resizes the user\'s real window. Use for reproducing responsive layouts or framing a recording, and consider restoring the original size afterwards.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), width: z.number().describe('window width, CSS px'), height: z.number().describe('window height, CSS px') },
   async ({ tabId, width, height }) => text(await call('resize_window', { tabId, width, height })),
 );
 
 defTool(
   'browser_gif_start',
-  'Start recording a GIF of the tab (a frame every intervalMs; on long recordings the frame rate halves automatically to stay within 80 frames)',
-  { tabId: z.number(), intervalMs: z.number().optional().describe('frame interval, default 800ms') },
+  'Start recording the tab into an animated GIF: a frame every intervalMs (default 800 ms); on long recordings the frame rate halves automatically so the whole scenario fits in ~80 frames. One recording per tab at a time; starting twice is an error. Nothing is saved until browser_gif_stop.',
+  { tabId: z.number().describe('tab id from browser_tabs_list or browser_tab_create'), intervalMs: z.number().optional().describe('frame interval in ms, default 800') },
   async ({ tabId, intervalMs }) => text(await call('gif_start', { tabId, intervalMs }, 30000)),
 );
 
 defTool(
   'browser_gif_stop',
-  'Stop recording and save the GIF to a file',
-  { tabId: z.number(), path: z.string().describe('absolute path for the .gif') },
+  'Stop the recording started by browser_gif_start and write the animated GIF to an absolute path on the user\'s machine. Mutating: creates or overwrites that file. Errors if no recording is active or no frames were captured.',
+  { tabId: z.number().describe('tab id the recording was started on'), path: z.string().describe('absolute path for the output .gif; overwritten if it exists') },
   async ({ tabId, path }) => {
     const { frames, intervalMs } = await call('gif_stop', { tabId }, 90000);
     if (!frames.length) throw new Error('no frames were recorded');
