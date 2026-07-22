@@ -121,7 +121,9 @@ injected (`chrome://` and the like) the indication is silently skipped.
    ```
 3. Check: the `browser_status` tool should return `{"connected": true}`.
 
-## Tools (v0.5)
+## Tools
+
+_As of v0.5._
 
 | Tool | What it does |
 |---|---|
