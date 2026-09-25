@@ -195,7 +195,7 @@ defTool(
 
 defTool(
   'browser_tabs_list',
-  'List all open browser tabs with their id, title, and URL. Read-only. Use it to pick a tabId for the other browser_* tools; prefer reusing an existing tab over creating a new one when the target page is already open.',
+  'List all open browser tabs with their id, windowId, active flag, title, and URL. Read-only. Use it to pick a tabId for the other browser_* tools; the tab with active:true is the one the user is looking at ("this page", "the current tab"). Prefer reusing an existing tab over creating a new one when the target page is already open.',
   {},
   async () => text(await call('tabs_list')),
 );
@@ -491,8 +491,7 @@ const CHAT_SYSTEM_PROMPT =
   'You are Claude in a browser panel (the Chromium Bridge). ' +
   'You have tools to work with the browser: list tabs, read pages, take ' +
   'screenshots, click, type text, run JavaScript, read the console and network. ' +
-  'When the question is about "this page" or "the current tab", call browser_tabs_list ' +
-  'first and use the tab with active:true. Take a screenshot only when the page text ' +
+  '"This page" or "the current tab" means the tab the user is looking at. Take a screenshot only when the page text ' +
   'does not answer the question. Respond in the user\'s language, briefly and to the ' +
   'point. Do not ask permission for safe actions (reading, screenshots, navigation) — just do them.';
 
